@@ -37,6 +37,9 @@ import time
 from typing import Dict, List, Tuple, Optional, Any
 from statsmodels.tsa.filters.hp_filter import hpfilter
 
+from datetime import date
+from calendar import monthrange
+
 warnings.filterwarnings('ignore')
 
 # Set UTF-8 encoding for Windows
@@ -61,12 +64,11 @@ DEFAULT_ASKING_RENT = 30.0
 DATE_TOLERANCE_DAYS = 45
 MIN_FORECAST_PERIODS = 4
 
-# BUG #1: Missing quarter configuration - candidates need to add these
+# Forecast configuration with quarter support
 FORECAST_START_YEAR = 2025
 FORECAST_END_YEAR = 2030
-# TODO: Add FORECAST_START_QUARTER and FORECAST_END_QUARTER variables here
-# FORECAST_START_QUARTER = ???  # Should be 1, 2, 3, or 4
-# FORECAST_END_QUARTER = ???    # Should be 1, 2, 3, or 4
+FORECAST_START_QUARTER = 3  # Should be 1, 2, 3, or 4
+FORECAST_END_QUARTER = 4    # Should be 1, 2, 3, or 4
 
 # INPUT FILE CONFIGURATION
 if 'FORECAST_SCENARIO_FILE' in os.environ:
@@ -110,7 +112,10 @@ else:
 MIN_HISTORICAL_PERIODS = 20
 
 # BUG #2: This print statement needs to include quarter information
-print(f"🌐 CENTRALIZED MULTI-METRO ASKING RENT FORECASTING ({FORECAST_START_YEAR}-{FORECAST_END_YEAR})")
+print(
+    f"🌐 CENTRALIZED MULTI-METRO ASKING RENT FORECASTING "
+    f"(Q{FORECAST_START_QUARTER} {FORECAST_START_YEAR} - Q{FORECAST_END_QUARTER} {FORECAST_END_YEAR})"
+)
 # TODO: Update to show quarters, e.g., "2025 Q2 - 2030 Q3"
 print("=" * 70)
 logger.info(f"Log file created: {log_filename}")
@@ -120,26 +125,44 @@ def quarter_to_month(quarter):
     Convert quarter number to month number
     Q1 = 1 (January), Q2 = 4 (April), Q3 = 7 (July), Q4 = 10 (October)
     """
-    # BUG #3: This function is incomplete
-    # TODO: Implement proper quarter to month conversion
-    pass
+    if quarter not in (1, 2, 3, 4):
+        raise ValueError(f"Quarter must be between 1 and 4, got {quarter}")
 
-def is_date_in_forecast_range(date, year, month):
+    return (quarter - 1) * 3 + 1
+
+def is_date_in_forecast_range(date_val, year, month):
     """
     Check if a date falls within the forecast range including quarters
     
     Args:
-        date: The date to check
+        date_val: The date to check
         year: Year from the data
         month: Month from the data (1, 4, 7, or 10 for quarters)
     
     Returns:
         bool: True if date is within forecast range
     """
-    # BUG #4: This function needs to be implemented
-    # TODO: Check if the date is between start year/quarter and end year/quarter
-    # Remember: months 1,4,7,10 correspond to Q1,Q2,Q3,Q4
-    pass
+    # Start = first day of start quarter
+    start_month = quarter_to_month(FORECAST_START_QUARTER)
+    FORECAST_START_DATE = date(FORECAST_START_YEAR, start_month, 1)
+
+    # End = last day of end quarter
+    end_start_month = quarter_to_month(FORECAST_END_QUARTER)
+    end_month = end_start_month + 2
+    last_day = monthrange(FORECAST_END_YEAR, end_month)[1]
+    FORECAST_END_DATE = date(FORECAST_END_YEAR, end_month, last_day)
+
+    if isinstance(date_val, str):
+        given_date = datetime.fromisoformat(date_val).date()
+    elif isinstance(date_val, datetime):
+        given_date = date_val.date()
+    elif isinstance(date_val, date):
+        given_date = date_val
+    else:
+        # If we have year and month, construct the date
+        given_date = date(year, month, 1)
+    
+    return FORECAST_START_DATE <= given_date <= FORECAST_END_DATE
 
 def find_latest_results_folder() -> Optional[str]:
     """Find the most recent multi_metro_hierarchical_results folder"""
@@ -367,18 +390,19 @@ def forecast_metro(metro_code: str,
         
         metro_data = create_features_for_metro(metro_data, model_info, feature_config)
         
-        # BUG #5: This filtering doesn't consider quarters
-        # Current implementation only filters by year
-        forecast_data = metro_data[
-            (metro_data['year'] >= FORECAST_START_YEAR) & 
-            (metro_data['year'] <= FORECAST_END_YEAR)
-        ].copy()
+        # Filter forecast data considering both year and quarter boundaries
+        start_month = quarter_to_month(FORECAST_START_QUARTER)
+        end_month = quarter_to_month(FORECAST_END_QUARTER) + 2  # Last month of end quarter
         
-        # TODO: Update the filtering logic to include quarter boundaries
-        # Hint: You need to check:
-        # - If year equals start year, month should be >= start quarter month
-        # - If year equals end year, month should be <= end quarter month
-        # - If year is between start and end, include all quarters
+        forecast_data = metro_data[
+            (
+                (metro_data['year'] > FORECAST_START_YEAR) |
+                ((metro_data['year'] == FORECAST_START_YEAR) & (metro_data['month'] >= start_month))
+            ) & (
+                (metro_data['year'] < FORECAST_END_YEAR) |
+                ((metro_data['year'] == FORECAST_END_YEAR) & (metro_data['month'] <= end_month))
+            )
+        ].copy()
         
         if len(forecast_data) < MIN_FORECAST_PERIODS:
             return None, f"Insufficient forecast periods: {len(forecast_data)} < {MIN_FORECAST_PERIODS}"
@@ -434,20 +458,25 @@ def forecast_metro(metro_code: str,
         
         forecast_results = []
         
-        # BUG #6: Getting last known asking rent doesn't consider the start quarter
-        last_known_year = FORECAST_START_YEAR - 1
-        # TODO: This should get the last known value before the start quarter, not just the start year
-        metro_last_known = metro_data[metro_data['year'] == last_known_year]
-        if len(metro_last_known) > 0 and 'Asking Rent/SF' in metro_last_known.columns:
-            valid_asking_rent = metro_last_known['Asking Rent/SF'].dropna()
+        # Get last known asking rent before the start quarter
+        start_month = quarter_to_month(FORECAST_START_QUARTER)
+        
+        # Look for data before the start quarter
+        metro_before_start = metro_data[
+            (metro_data['year'] < FORECAST_START_YEAR) |
+            ((metro_data['year'] == FORECAST_START_YEAR) & (metro_data['month'] < start_month))
+        ]
+        
+        if len(metro_before_start) > 0 and 'Asking Rent/SF' in metro_before_start.columns:
+            valid_asking_rent = metro_before_start['Asking Rent/SF'].dropna()
             last_asking_rent = valid_asking_rent.iloc[-1] if len(valid_asking_rent) > 0 else DEFAULT_ASKING_RENT
         else:
             last_asking_rent = DEFAULT_ASKING_RENT
             logger.warning(f"Using default asking rent {DEFAULT_ASKING_RENT} $/SF for {metro_code}")
         
         asking_rent_history = {}
-        if len(metro_last_known) > 0:
-            for _, row in metro_last_known.iterrows():
+        if len(metro_before_start) > 0:
+            for _, row in metro_before_start.iterrows():
                 if 'Asking Rent/SF' in row and not pd.isna(row.get('Asking Rent/SF')):
                     asking_rent_history[row['date_col']] = row['Asking Rent/SF']
         
@@ -497,13 +526,14 @@ def forecast_metro(metro_code: str,
             
             yoy_change_history[current_date] = capped_yoy_change
             
-            # BUG #8: This special handling needs to consider the start quarter
-            if row['year'] == FORECAST_START_YEAR:
-                # TODO: This logic should check if we're in the first forecast quarter
-                # not just the first forecast year
-                quarter = row['month']
-                
-                # The rest of the special handling logic...
+            # Special handling for first forecast period (first quarter of forecast)
+            is_first_forecast_period = (
+                row['year'] == FORECAST_START_YEAR and 
+                row['month'] == quarter_to_month(FORECAST_START_QUARTER)
+            )
+            
+            if is_first_forecast_period:
+                # Apply special logic for the very first forecast period
                 predicted_asking_rent = base_rate * (1 + capped_yoy_change / 100)
             else:
                 predicted_asking_rent = base_rate * (1 + capped_yoy_change / 100)
@@ -547,13 +577,12 @@ def forecast_metro(metro_code: str,
 def main():
     start_time = time.time()
     
-    # BUG #9: Configuration display needs to show quarters
     print(f"\n📊 CONFIGURATION:")
     print(f"   • Scenario: {SCENARIO_NAME}")
     print(f"   • Future Economic Data: {FUTURE_ECONOMIC_DATA_FILE}")
     print(f"   • Historical Data: {HISTORICAL_DATA_FILE}")
+    print(f"   • Forecast Period: Q{FORECAST_START_QUARTER} {FORECAST_START_YEAR} - Q{FORECAST_END_QUARTER} {FORECAST_END_YEAR}")
     print(f"   • Capping Method: {'SD-based YoY' if USE_SD_CAPPING else 'Default YoY (±20%)'}")
-    # TODO: Add display of quarter configuration here
     if USE_SD_CAPPING:
         print(f"   • SD Multiplier: {SD_MULTIPLIER} (±{SD_MULTIPLIER} standard deviations on YoY changes)")
         print(f"   • Min Historical Periods: {MIN_HISTORICAL_PERIODS}")
@@ -753,14 +782,12 @@ def main():
         
         print(f"✅ HP filtering complete for {final_forecasts['Metro_Code'].nunique()} metros")
         
-        # BUG #10: Output filename should include quarter information
+        # Create output folder and filename with quarter information
         timestamp = datetime.now().strftime('%Y_%m_%d_%H%M%S')
         output_folder = f'centralized_forecasts_{timestamp}'
         os.makedirs(output_folder, exist_ok=True)
         
-        # TODO: Update filename to include quarters
-        csv_filename = f'all_metro_forecasts_{FORECAST_START_YEAR}_{FORECAST_END_YEAR}.csv'
-        # Should be something like: f'all_metro_forecasts_{FORECAST_START_YEAR}_Q{FORECAST_START_QUARTER}_{FORECAST_END_YEAR}_Q{FORECAST_END_QUARTER}.csv'
+        csv_filename = f'all_metro_forecasts_{FORECAST_START_YEAR}_Q{FORECAST_START_QUARTER}_{FORECAST_END_YEAR}_Q{FORECAST_END_QUARTER}.csv'
         
         csv_path = os.path.join(output_folder, csv_filename)
         final_forecasts.to_csv(csv_path, index=False)
