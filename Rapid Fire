@@ -1,0 +1,48 @@
+# ⚡ Rapid-Fire Interview Questions
+## Questions
+
+1. **Stationarity**  
+   How do you quickly guess if a series is non-stationary just by looking at it?
+
+
+2. **ARIMA**  
+   What happens if you set d=0 when the series is clearly non-stationary?
+
+
+3. **Time-series CV**  
+   Why can’t we shuffle train/test in time series?
+
+
+4. **Leakage**  
+   Which is sneakier leakage: holidays in train but missing in test,  
+   or test averages leaking into scaler?
+
+
+5. **K-means**  
+   What if all points are identical — how many clusters do you actually get?
+
+
+6. **t-SNE**  
+   Why shouldn’t you use t-SNE to compare two datasets’ clusters?
+
+
+7. **Elastic Net**  
+   What happens if α=0?
+
+
+8. **Explainability**  
+   Which is heavier on compute: permutation importance or SHAP?
+
+
+9. **Intermittent demand**  
+   If demand is zero for 90% of periods, what will Holt-Winters do?
+
+
+10. **Drift**  
+    Which is subtler: data drift or concept drift?
+
+---
+
+
+
+
