@@ -64,6 +64,8 @@ MIN_FORECAST_PERIODS = 4
 # BUG #1: Missing quarter configuration - candidates need to add these
 FORECAST_START_YEAR = 2025
 FORECAST_END_YEAR = 2030
+FORECAST_START_QUARTER = 1
+FORECAST_END_QUARTER = 4
 # TODO: Add FORECAST_START_QUARTER and FORECAST_END_QUARTER variables here
 # FORECAST_START_QUARTER = ???  # Should be 1, 2, 3, or 4
 # FORECAST_END_QUARTER = ???    # Should be 1, 2, 3, or 4
@@ -110,7 +112,7 @@ else:
 MIN_HISTORICAL_PERIODS = 20
 
 # BUG #2: This print statement needs to include quarter information
-print(f"🌐 CENTRALIZED MULTI-METRO ASKING RENT FORECASTING ({FORECAST_START_YEAR}-{FORECAST_END_YEAR})")
+print(f"🌐 CENTRALIZED MULTI-METRO ASKING RENT FORECASTING ({FORECAST_START_YEAR," ",FORECAST_START_QUARTER}-{FORECAST_END_YEAR," ",FORECAST_END_QUARTER})")
 # TODO: Update to show quarters, e.g., "2025 Q2 - 2030 Q3"
 print("=" * 70)
 logger.info(f"Log file created: {log_filename}")
@@ -120,6 +122,10 @@ def quarter_to_month(quarter):
     Convert quarter number to month number
     Q1 = 1 (January), Q2 = 4 (April), Q3 = 7 (July), Q4 = 10 (October)
     """
+     if not 1 <= quarter <= 4:
+        raise ValueError("Quarter must be between 1 and 4")
+    
+    return (quarter - 1) * 3 + 1
     # BUG #3: This function is incomplete
     # TODO: Implement proper quarter to month conversion
     pass
@@ -139,7 +145,20 @@ def is_date_in_forecast_range(date, year, month):
     # BUG #4: This function needs to be implemented
     # TODO: Check if the date is between start year/quarter and end year/quarter
     # Remember: months 1,4,7,10 correspond to Q1,Q2,Q3,Q4
+    if isinstance(date, str):
+        date = datetime.datetime.strptime(date, "%Y-%m-%d").date()
+
+    def quarter_to_month(q): 
+        return (q - 1) * 3 + 1
+
+    start_date = datetime.date(start_year, quarter_to_month(start_quarter), 1)
+
+    end_month = end_quarter * 3
+    next_month = datetime.date(end_year, end_month, 28) + datetime.timedelta(days=4)
+    end_date = next_month - datetime.timedelta(days=next_month.day)
     pass
+    if not (start_date <= date <= end_date):
+        raise ValueError(f"❌ Date {date} is outside forecast range ({start_year} Q{start_quarter} to {end_year} Q{end_quarter})")
 
 def find_latest_results_folder() -> Optional[str]:
     """Find the most recent multi_metro_hierarchical_results folder"""
@@ -370,8 +389,8 @@ def forecast_metro(metro_code: str,
         # BUG #5: This filtering doesn't consider quarters
         # Current implementation only filters by year
         forecast_data = metro_data[
-            (metro_data['year'] >= FORECAST_START_YEAR) & 
-            (metro_data['year'] <= FORECAST_END_YEAR)
+            (metro_data['year'] >= FORECAST_START_YEAR) & (metro_data['month'] >= FORECAST_START_QUARTER)
+            (metro_data['year'] <= FORECAST_END_YEAR) & (metro_data['month'] >= FORECAST_END_QUARTER)
         ].copy()
         
         # TODO: Update the filtering logic to include quarter boundaries
@@ -437,7 +456,7 @@ def forecast_metro(metro_code: str,
         # BUG #6: Getting last known asking rent doesn't consider the start quarter
         last_known_year = FORECAST_START_YEAR - 1
         # TODO: This should get the last known value before the start quarter, not just the start year
-        metro_last_known = metro_data[metro_data['year'] == last_known_year]
+        metro_last_known = (metro_data[metro_data['year'] == last_known_year) & (metro_data[metro_data['Month'] == FORECAST_START_QUARTER)
         if len(metro_last_known) > 0 and 'Asking Rent/SF' in metro_last_known.columns:
             valid_asking_rent = metro_last_known['Asking Rent/SF'].dropna()
             last_asking_rent = valid_asking_rent.iloc[-1] if len(valid_asking_rent) > 0 else DEFAULT_ASKING_RENT
@@ -467,7 +486,7 @@ def forecast_metro(metro_code: str,
         # BUG #7: Special handling for first forecast period needs quarter awareness
         for idx, (i, row) in enumerate(forecast_data.iterrows()):
             current_date = row['date_col']
-            prev_year_date = current_date - pd.DateOffset(years=1)
+            prev_year_date = current_date - pd.DateOffset(years=1)+pd.offests.QuarterBegin(FORECAST_START_QUARTER)
             
             base_rate = None
             
@@ -498,7 +517,7 @@ def forecast_metro(metro_code: str,
             yoy_change_history[current_date] = capped_yoy_change
             
             # BUG #8: This special handling needs to consider the start quarter
-            if row['year'] == FORECAST_START_YEAR:
+            if row['year'] == FORECAST_START_YEAR & row['Month'] == FORECAST_START_QUARTER::
                 # TODO: This logic should check if we're in the first forecast quarter
                 # not just the first forecast year
                 quarter = row['month']
